@@ -8,10 +8,10 @@ from utils import init_weights, get_padding
 LRELU_SLOPE = 0.1
 
 
-class ResBlock1(torch.nn.Module):
+class ResBlock1(torch.nn.Module): # bigv-gan，把它升级成了 AMPBlock1
     def __init__(self, h, channels, kernel_size=3, dilation=(1, 3, 5)):
         super(ResBlock1, self).__init__()
-        self.h = h
+        self.h = h # h 没用到
         self.convs1 = nn.ModuleList([
             weight_norm(Conv1d(channels, channels, kernel_size, 1, dilation=dilation[0],
                                padding=get_padding(kernel_size, dilation[0]))),
@@ -34,7 +34,7 @@ class ResBlock1(torch.nn.Module):
 
     def forward(self, x):
         for c1, c2 in zip(self.convs1, self.convs2):
-            xt = F.leaky_relu(x, LRELU_SLOPE)
+            xt = F.leaky_relu(x, LRELU_SLOPE) # bigv-gan中把它升级成了 snake 激活，且激活前后有 up-sample / down-sample
             xt = c1(xt)
             xt = F.leaky_relu(xt, LRELU_SLOPE)
             xt = c2(xt)
@@ -82,18 +82,25 @@ class Generator(torch.nn.Module):
         resblock = ResBlock1 if h.resblock == '1' else ResBlock2
 
         self.ups = nn.ModuleList()
-        for i, (u, k) in enumerate(zip(h.upsample_rates, h.upsample_kernel_sizes)):
+        for i, (u, k) in enumerate(zip(h.upsample_rates, h.upsample_kernel_sizes)): # V1: upsample_rates=[8,8,2,2], upsample_kernel_sizes=[16,16,4,4]
             self.ups.append(weight_norm(
-                ConvTranspose1d(h.upsample_initial_channel//(2**i), h.upsample_initial_channel//(2**(i+1)),
-                                k, u, padding=(k-u)//2)))
+                ConvTranspose1d(h.upsample_initial_channel//(2**i),      # in_channel
+                                h.upsample_initial_channel//(2**(i+1)),  # out_channel = in_channel / 2
+                                k,                                       # kernel_size: v1 [16, 16, 4, 4]
+                                u,                                       # stride:      v1 [ 8,  8, 2, 2]
+                                padding=(k-u)//2)))
 
         self.resblocks = nn.ModuleList()
         for i in range(len(self.ups)):
             ch = h.upsample_initial_channel//(2**(i+1))
-            for j, (k, d) in enumerate(zip(h.resblock_kernel_sizes, h.resblock_dilation_sizes)):
-                self.resblocks.append(resblock(h, ch, k, d))
+            for j, (k, d) in enumerate(zip(h.resblock_kernel_sizes, h.resblock_dilation_sizes)): # resblock_kernel_sizes: v1: [3,7,11], resblock_dilation_sizes: v1: [[1,3,5], [1,3,5], [1,3,5]]
+                # k,  d: V1.config 中：
+                # 3,  [1,3,5]
+                # 7,  [1,3,5]
+                # 11, [1,3,5]
+                self.resblocks.append(resblock(h=h, channels=ch, kernel_size=k, dilation=d))
 
-        self.conv_post = weight_norm(Conv1d(ch, 1, 7, 1, padding=3))
+        self.conv_post = weight_norm(Conv1d(ch, 1, 7, 1, padding=3)) # in_channel=ch, out_channel=1, kernel_size=7, stride=1, padding=3
         self.ups.apply(init_weights)
         self.conv_post.apply(init_weights)
 
@@ -110,8 +117,8 @@ class Generator(torch.nn.Module):
                     xs += self.resblocks[i*self.num_kernels+j](x)
             x = xs / self.num_kernels
         x = F.leaky_relu(x)
-        x = self.conv_post(x)
-        x = torch.tanh(x)
+        x = self.conv_post(x) # 多 channel 合成 1-channel，从而生成 audio-wave
+        x = torch.tanh(x)     # 输出范围在 -1 到 1 之间
 
         return x
 
