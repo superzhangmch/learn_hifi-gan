@@ -1,3 +1,8 @@
+<ul>
+    <li>主要文件： https://github.com/superzhangmch/learn_hifi-gan/blob/master/models.py </li>
+</ul>
+<hr>
+
 # HiFi-GAN: Generative Adversarial Networks for Efficient and High Fidelity Speech Synthesis
 
 ### Jungil Kong, Jaehyeon Kim, Jaekyoung Bae
